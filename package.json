@@ -1,0 +1,27 @@
+{
+  "name": "pairs",
+  "version": "1.0.0",
+  "description": "A bot that drops crypto currencies into the channel every hour.",
+  "main": "src/bot.js",
+  "scripts": {
+    "start:dev": "node --watch src/bot.js",
+    "start": "node src/bot.js"
+  },
+  "keywords": [
+    "bot",
+    "crypto",
+    "BTC",
+    "ETH",
+    "trading"
+  ],
+  "author": "Xamroqulov Shamsiddin",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "axios": "^1.13.5",
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.3.1",
+    "node-cron": "^4.2.1",
+    "telegraf": "^4.16.3"
+  }
+}
