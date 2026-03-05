@@ -34,18 +34,20 @@ Botni boshqarish uchun quyidagi tugmalardan foydalaning.`,
         second: "2-digit",
       });
 
-      return `
-*BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
-*ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD  
+      const isWeekend =
+        crypto?.gold === null &&
+        crypto?.silver === null &&
+        crypto?.oilPriceUsd === null;
 
-*USD*: ${formatNumber(crypto?.usdToUzs?.result?.UZS, 2)} UZS
-*AUD*: ${formatNumber(crypto?.audToUsd?.result?.USD, 6)} USD  
-
-*GOLD*: ${formatNumber(crypto?.gold?.price, 2)} USD
+      const forexSection = !isWeekend
+        ? `*GOLD*: ${formatNumber(crypto?.gold?.price, 2)} USD
 *SILVER*: ${formatNumber(crypto?.silver?.price, 2)} USD
-*OIL (Brent)*: ${formatNumber(crypto?.oilPriceUsd, 2)} USD
+*OIL (Brent)*: ${formatNumber(crypto?.oilPriceUsd, 2)} USD\n`
+        : "";
 
-*Yangilanish vaqti*: ${now}`;
+      return `${forexSection}
+*BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
+*ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD`;
     },
   },
 };
