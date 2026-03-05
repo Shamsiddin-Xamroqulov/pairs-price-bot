@@ -177,8 +177,6 @@ export const startScheduler = async (bot) => {
     weeklyCleanJob = cron.schedule("0 0 * * 1", async () => {
       try {
         await clearCryptoFile();
-
-        // weekdayJob ni qayta ishga tushirish
         if (!weekdayJob) {
           weekdayJob = cron.schedule("0 * * * 1-5", async () => {
             try {

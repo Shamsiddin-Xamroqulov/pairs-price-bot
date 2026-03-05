@@ -25,15 +25,6 @@ Botni boshqarish uchun quyidagi tugmalardan foydalaning.`,
     sending_price_already_stoped: `⚠️ Narxlarni jo'natish to'xtatilgan`,
     sending_price_stoped: `🛑 Narxlar yuborilishi to‘xtatildi.`,
     send_channel_price: (crypto) => {
-      const now = new Date().toLocaleString("uz-UZ", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-
       const isWeekend =
         crypto?.gold === null &&
         crypto?.silver === null &&
