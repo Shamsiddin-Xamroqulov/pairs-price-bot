@@ -1,7 +1,35 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import cron from "node-cron";
+import fs from "fs/promises";
+import path from "path";
 import { texts } from "../constant/index.js";
+
+const CRYPTO_FILE = path.join(process.cwd(), "db", "crypto.json");
+
+export const saveCryptoToFile = async (data) => {
+  await fs.mkdir(path.join(process.cwd(), "db"), { recursive: true });
+
+  let existing = [];
+  try {
+    const file = await fs.readFile(CRYPTO_FILE, "utf-8");
+    existing = JSON.parse(file);
+  } catch {
+    existing = [];
+  }
+
+  existing.push({
+    ...data,
+    savedAt: new Date().toISOString(),
+  });
+
+  await fs.writeFile(CRYPTO_FILE, JSON.stringify(existing, null, 2), "utf-8");
+};
+
+export const clearCryptoFile = async () => {
+  await fs.mkdir(path.join(process.cwd(), "db"), { recursive: true });
+  await fs.writeFile(CRYPTO_FILE, JSON.stringify([], null, 2), "utf-8");
+};
 
 export const fetchCryptoRates = async () => {
   const baseParams = {
@@ -77,6 +105,8 @@ export const fetchCryptoOnly = async () => {
 
 let weekdayJob = null;
 let weekendJob = null;
+let weeklyCleanJob = null;
+let forexCloseJob = null;
 let isPriceRunning = false;
 
 export const startScheduler = async (bot) => {
@@ -84,6 +114,7 @@ export const startScheduler = async (bot) => {
   isPriceRunning = true;
 
   const sendMessage = async (result) => {
+    await saveCryptoToFile(result);
     await bot.telegram.sendMessage(
       process.env.CHANNEL_USERNAME,
       texts.admin.uz.send_channel_price(result),
@@ -99,7 +130,9 @@ export const startScheduler = async (bot) => {
       ? await fetchCryptoOnly()
       : await fetchCryptoRates();
 
-    weekdayJob = cron.schedule("*/1 * * * 1-5", async () => {
+    await saveCryptoToFile(immediateResult);
+
+    weekdayJob = cron.schedule("0 * * * 1-5", async () => {
       try {
         const result = await fetchCryptoRates();
         await sendMessage(result);
@@ -108,13 +141,59 @@ export const startScheduler = async (bot) => {
       }
     });
 
-    weekendJob = cron.schedule("*/1 * * * 0,6", async () => {
+    weekendJob = cron.schedule("0 * * * 0,6", async () => {
       try {
         const result = await fetchCryptoOnly();
         await sendMessage(result);
       } catch (error) {
         console.error("Weekend scheduler error:", error.message);
       }
+    });
+
+    forexCloseJob = cron.schedule("0 19 * * 5", async () => {
+      try {
+        if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
+
+        const result = await fetchCryptoOnly();
+        await sendMessage(result);
+
+        if (!weekendJob) {
+          weekendJob = cron.schedule("0 * * * 0,6", async () => {
+            try {
+              const result = await fetchCryptoOnly();
+              await sendMessage(result);
+            } catch (error) {
+              console.error("Weekend scheduler error:", error.message);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Forex close job error:", error.message);
+      }
+    }, {
+      timezone: "Asia/Tashkent"
+    });
+
+    weeklyCleanJob = cron.schedule("0 0 * * 1", async () => {
+      try {
+        await clearCryptoFile();
+
+        // weekdayJob ni qayta ishga tushirish
+        if (!weekdayJob) {
+          weekdayJob = cron.schedule("0 * * * 1-5", async () => {
+            try {
+              const result = await fetchCryptoRates();
+              await sendMessage(result);
+            } catch (error) {
+              console.error("Weekday scheduler error:", error.message);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Weekly clean error:", error.message);
+      }
+    }, {
+      timezone: "Asia/Tashkent"
     });
 
     return immediateResult;
@@ -129,6 +208,8 @@ export const stopScheduler = () => {
 
   if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
   if (weekendJob) { weekendJob.stop(); weekendJob = null; }
+  if (weeklyCleanJob) { weeklyCleanJob.stop(); weeklyCleanJob = null; }
+  if (forexCloseJob) { forexCloseJob.stop(); forexCloseJob = null; }
   isPriceRunning = false;
 
   return true;
