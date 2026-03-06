@@ -48,21 +48,26 @@ export const fetchCryptoRates = async () => {
     const goldRes = await axios.get("https://api.gold-api.com/price/XAU");
     const silverRes = await axios.get("https://api.gold-api.com/price/XAG");
 
-    let price;
-    const { data } = await axios.get(
-      "https://tradingeconomics.com/commodity/brent-crude-oil",
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+    let price = null;
+    try {
+      const { data } = await axios.get(
+        "https://tradingeconomics.com/commodity/brent-crude-oil",
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+          },
+          timeout: 5000,
         },
-        timeout: 5000,
-      },
-    );
-    const $ = cheerio.load(data);
-    const metaContent = $('meta[name="description"]').attr("content");
-    const match = metaContent?.match(/(\d+\.\d+)\sUSD/);
-    if (match) price = Number(match[1]);
+      );
+      const $ = cheerio.load(data);
+      const metaContent = $('meta[name="description"]').attr("content");
+      const match = metaContent?.match(/(\d+\.\d+)\sUSD/);
+      if (match) price = Number(match[1]);
+    } catch {
+      console.warn("Oil price fetch failed, skipping...");
+    }
+
     return {
       btcToUsd: btcUsdRes.data,
       ethToUsd: ethUsdRes.data,
@@ -134,26 +139,34 @@ export const startScheduler = async (bot, chatId) => {
 
     await saveCryptoToFile(immediateResult);
 
-    weekdayJob = cron.schedule("0 * * * 1-5", async () => {
-      try {
-        const result = await fetchCryptoRates();
-        await sendMessage(result);
-      } catch (error) {
-        console.error("Weekday scheduler error:", error.message);
-      }
-    });
+    weekdayJob = cron.schedule(
+      "0 * * * 1-5",
+      async () => {
+        try {
+          const result = await fetchCryptoRates();
+          await sendMessage(result);
+        } catch (error) {
+          console.error("Weekday scheduler error:", error.message);
+        }
+      },
+      { timezone: "Asia/Tashkent" },
+    );
 
-    weekendJob = cron.schedule("0 * * * 0,6", async () => {
-      try {
-        const result = await fetchCryptoOnly();
-        await sendMessage(result);
-      } catch (error) {
-        console.error("Weekend scheduler error:", error.message);
-      }
-    });
+    weekendJob = cron.schedule(
+      "0 * * * 0,6",
+      async () => {
+        try {
+          const result = await fetchCryptoOnly();
+          await sendMessage(result);
+        } catch (error) {
+          console.error("Weekend scheduler error:", error.message);
+        }
+      },
+      { timezone: "Asia/Tashkent" },
+    );
 
     forexCloseJob = cron.schedule(
-      "0 19 * * 5",
+      "58 2 * * 6",
       async () => {
         try {
           if (weekdayJob) {
@@ -161,26 +174,13 @@ export const startScheduler = async (bot, chatId) => {
             weekdayJob = null;
           }
 
-          const result = await fetchCryptoOnly();
+          const result = await fetchCryptoRates();
           await sendMessage(result);
-
-          if (!weekendJob) {
-            weekendJob = cron.schedule("0 * * * 0,6", async () => {
-              try {
-                const result = await fetchCryptoOnly();
-                await sendMessage(result);
-              } catch (error) {
-                console.error("Weekend scheduler error:", error.message);
-              }
-            });
-          }
         } catch (error) {
           console.error("Forex close job error:", error.message);
         }
       },
-      {
-        timezone: "Asia/Tashkent",
-      },
+      { timezone: "Asia/Tashkent" },
     );
 
     weeklyCleanJob = cron.schedule(
@@ -189,22 +189,24 @@ export const startScheduler = async (bot, chatId) => {
         try {
           await clearCryptoFile();
           if (!weekdayJob) {
-            weekdayJob = cron.schedule("0 * * * 1-5", async () => {
-              try {
-                const result = await fetchCryptoRates();
-                await sendMessage(result);
-              } catch (error) {
-                console.error("Weekday scheduler error:", error.message);
-              }
-            });
+            weekdayJob = cron.schedule(
+              "0 * * * 1-5",
+              async () => {
+                try {
+                  const result = await fetchCryptoRates();
+                  await sendMessage(result);
+                } catch (error) {
+                  console.error("Weekday scheduler error:", error.message);
+                }
+              },
+              { timezone: "Asia/Tashkent" },
+            );
           }
         } catch (error) {
           console.error("Weekly clean error:", error.message);
         }
       },
-      {
-        timezone: "Asia/Tashkent",
-      },
+      { timezone: "Asia/Tashkent" },
     );
 
     return immediateResult;
