@@ -56,13 +56,13 @@ export const fetchCryptoRates = async () => {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
         },
-      }
+        timeout: 5000,
+      },
     );
     const $ = cheerio.load(data);
     const metaContent = $('meta[name="description"]').attr("content");
-    const match = metaContent?.match(/rose to ([\d.]+) USD/);
+    const match = metaContent?.match(/(\d+\.\d+)\sUSD/);
     if (match) price = Number(match[1]);
-
     return {
       btcToUsd: btcUsdRes.data,
       ethToUsd: ethUsdRes.data,
@@ -109,16 +109,18 @@ let weeklyCleanJob = null;
 let forexCloseJob = null;
 let isPriceRunning = false;
 
-export const startScheduler = async (bot) => {
+export const startScheduler = async (bot, chatId) => {
   if (isPriceRunning) return null;
   isPriceRunning = true;
 
   const sendMessage = async (result) => {
     await saveCryptoToFile(result);
     await bot.telegram.sendMessage(
-      process.env.CHANNEL_USERNAME,
+      chatId,
       texts.admin.uz.send_channel_price(result),
-      { parse_mode: "Markdown" }
+      {
+        parse_mode: "Markdown",
+      },
     );
   };
 
@@ -150,49 +152,60 @@ export const startScheduler = async (bot) => {
       }
     });
 
-    forexCloseJob = cron.schedule("0 19 * * 5", async () => {
-      try {
-        if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
+    forexCloseJob = cron.schedule(
+      "0 19 * * 5",
+      async () => {
+        try {
+          if (weekdayJob) {
+            weekdayJob.stop();
+            weekdayJob = null;
+          }
 
-        const result = await fetchCryptoOnly();
-        await sendMessage(result);
+          const result = await fetchCryptoOnly();
+          await sendMessage(result);
 
-        if (!weekendJob) {
-          weekendJob = cron.schedule("0 * * * 0,6", async () => {
-            try {
-              const result = await fetchCryptoOnly();
-              await sendMessage(result);
-            } catch (error) {
-              console.error("Weekend scheduler error:", error.message);
-            }
-          });
+          if (!weekendJob) {
+            weekendJob = cron.schedule("0 * * * 0,6", async () => {
+              try {
+                const result = await fetchCryptoOnly();
+                await sendMessage(result);
+              } catch (error) {
+                console.error("Weekend scheduler error:", error.message);
+              }
+            });
+          }
+        } catch (error) {
+          console.error("Forex close job error:", error.message);
         }
-      } catch (error) {
-        console.error("Forex close job error:", error.message);
-      }
-    }, {
-      timezone: "Asia/Tashkent"
-    });
+      },
+      {
+        timezone: "Asia/Tashkent",
+      },
+    );
 
-    weeklyCleanJob = cron.schedule("0 0 * * 1", async () => {
-      try {
-        await clearCryptoFile();
-        if (!weekdayJob) {
-          weekdayJob = cron.schedule("0 * * * 1-5", async () => {
-            try {
-              const result = await fetchCryptoRates();
-              await sendMessage(result);
-            } catch (error) {
-              console.error("Weekday scheduler error:", error.message);
-            }
-          });
+    weeklyCleanJob = cron.schedule(
+      "0 0 * * 1",
+      async () => {
+        try {
+          await clearCryptoFile();
+          if (!weekdayJob) {
+            weekdayJob = cron.schedule("0 * * * 1-5", async () => {
+              try {
+                const result = await fetchCryptoRates();
+                await sendMessage(result);
+              } catch (error) {
+                console.error("Weekday scheduler error:", error.message);
+              }
+            });
+          }
+        } catch (error) {
+          console.error("Weekly clean error:", error.message);
         }
-      } catch (error) {
-        console.error("Weekly clean error:", error.message);
-      }
-    }, {
-      timezone: "Asia/Tashkent"
-    });
+      },
+      {
+        timezone: "Asia/Tashkent",
+      },
+    );
 
     return immediateResult;
   } catch (error) {
@@ -204,10 +217,22 @@ export const startScheduler = async (bot) => {
 export const stopScheduler = () => {
   if (!isPriceRunning) return false;
 
-  if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
-  if (weekendJob) { weekendJob.stop(); weekendJob = null; }
-  if (weeklyCleanJob) { weeklyCleanJob.stop(); weeklyCleanJob = null; }
-  if (forexCloseJob) { forexCloseJob.stop(); forexCloseJob = null; }
+  if (weekdayJob) {
+    weekdayJob.stop();
+    weekdayJob = null;
+  }
+  if (weekendJob) {
+    weekendJob.stop();
+    weekendJob = null;
+  }
+  if (weeklyCleanJob) {
+    weeklyCleanJob.stop();
+    weeklyCleanJob = null;
+  }
+  if (forexCloseJob) {
+    forexCloseJob.stop();
+    forexCloseJob = null;
+  }
   isPriceRunning = false;
 
   return true;

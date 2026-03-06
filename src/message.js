@@ -11,15 +11,16 @@ export const messageHandler = async (bot, ctx) => {
       if (isPriceRunning) {
         return ctx.reply(texts.admin.uz.bot_already_started);
       }
+      const chat = await bot.telegram.getChat(process.env.CHANNEL_USERNAME);
       const me = await bot.telegram.getMe();
       const channel = await bot.telegram.getChatMember(
-        process.env.CHANNEL_USERNAME,
+        chat.id,
         me.id,
       );
       if (channel.status !== "administrator") {
         return ctx.reply(texts.admin.uz.not_administrator);
       }
-      const crypto = await startScheduler(bot);
+      const crypto = await startScheduler(bot, chat.id);
       ctx.reply(texts.admin.uz.price_started);
     } catch (err) {
       console.log(`Error starting the bot:`, err.message);
