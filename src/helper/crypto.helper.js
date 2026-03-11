@@ -1,5 +1,4 @@
 import axios from "axios";
-import * as cheerio from "cheerio";
 import cron from "node-cron";
 import fs from "fs/promises";
 import path from "path";
@@ -48,32 +47,11 @@ export const fetchCryptoRates = async () => {
     const goldRes = await axios.get("https://api.gold-api.com/price/XAU");
     const silverRes = await axios.get("https://api.gold-api.com/price/XAG");
 
-    let price = null;
-    try {
-      const { data } = await axios.get(
-        "https://tradingeconomics.com/commodity/brent-crude-oil",
-        {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
-          },
-          timeout: 5000,
-        },
-      );
-      const $ = cheerio.load(data);
-      const metaContent = $('meta[name="description"]').attr("content");
-      const match = metaContent?.match(/(\d+\.\d+)\sUSD/);
-      if (match) price = Number(match[1]);
-    } catch {
-      console.warn("Oil price fetch failed, skipping...");
-    }
-
     return {
       btcToUsd: btcUsdRes.data,
       ethToUsd: ethUsdRes.data,
       gold: goldRes.data,
       silver: silverRes.data,
-      oilPriceUsd: price,
     };
   } catch (error) {
     console.error("Error sending fetch: ", error.message);
@@ -100,7 +78,6 @@ export const fetchCryptoOnly = async () => {
       ethToUsd: ethUsdRes.data,
       gold: null,
       silver: null,
-      oilPriceUsd: null,
     };
   } catch (error) {
     console.error("Error fetching crypto only: ", error.message);
@@ -123,15 +100,16 @@ export const startScheduler = async (bot, chatId) => {
     await bot.telegram.sendMessage(
       chatId,
       texts.admin.uz.send_channel_price(result),
-      {
-        parse_mode: "Markdown",
-      },
+      { parse_mode: "Markdown" },
     );
   };
 
   try {
     const dayOfWeek = new Date().getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const now = new Date();
+    const isWeekend =
+      dayOfWeek === 0 ||
+      (dayOfWeek === 6 && now.getHours() >= 3);
 
     const immediateResult = isWeekend
       ? await fetchCryptoOnly()
@@ -140,7 +118,7 @@ export const startScheduler = async (bot, chatId) => {
     await saveCryptoToFile(immediateResult);
 
     weekdayJob = cron.schedule(
-      "0 * * * 1-5",
+      "0 * * * 1-6",
       async () => {
         try {
           const result = await fetchCryptoRates();
@@ -153,7 +131,7 @@ export const startScheduler = async (bot, chatId) => {
     );
 
     weekendJob = cron.schedule(
-      "0 * * * 0,6",
+      "0 * * * 0",
       async () => {
         try {
           const result = await fetchCryptoOnly();
@@ -176,6 +154,35 @@ export const startScheduler = async (bot, chatId) => {
 
           const result = await fetchCryptoRates();
           await sendMessage(result);
+
+          if (!weekendJob) {
+            weekendJob = cron.schedule(
+              "0 * * * 0",
+              async () => {
+                try {
+                  const res = await fetchCryptoOnly();
+                  await sendMessage(res);
+                } catch (error) {
+                  console.error("Weekend scheduler error:", error.message);
+                }
+              },
+              { timezone: "Asia/Tashkent" },
+            );
+          }
+
+          const shanbaCryptoJob = cron.schedule(
+            "0 3-23 * * 6",
+            async () => {
+              try {
+                const res = await fetchCryptoOnly();
+                await sendMessage(res);
+              } catch (error) {
+                console.error("Shanba crypto error:", error.message);
+              }
+            },
+            { timezone: "Asia/Tashkent" },
+          );
+
         } catch (error) {
           console.error("Forex close job error:", error.message);
         }
@@ -190,7 +197,7 @@ export const startScheduler = async (bot, chatId) => {
           await clearCryptoFile();
           if (!weekdayJob) {
             weekdayJob = cron.schedule(
-              "0 * * * 1-5",
+              "0 * * * 1-6",
               async () => {
                 try {
                   const result = await fetchCryptoRates();
@@ -219,22 +226,10 @@ export const startScheduler = async (bot, chatId) => {
 export const stopScheduler = () => {
   if (!isPriceRunning) return false;
 
-  if (weekdayJob) {
-    weekdayJob.stop();
-    weekdayJob = null;
-  }
-  if (weekendJob) {
-    weekendJob.stop();
-    weekendJob = null;
-  }
-  if (weeklyCleanJob) {
-    weeklyCleanJob.stop();
-    weeklyCleanJob = null;
-  }
-  if (forexCloseJob) {
-    forexCloseJob.stop();
-    forexCloseJob = null;
-  }
+  if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
+  if (weekendJob) { weekendJob.stop(); weekendJob = null; }
+  if (weeklyCleanJob) { weeklyCleanJob.stop(); weeklyCleanJob = null; }
+  if (forexCloseJob) { forexCloseJob.stop(); forexCloseJob = null; }
   isPriceRunning = false;
 
   return true;

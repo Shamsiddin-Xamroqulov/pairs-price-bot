@@ -25,20 +25,16 @@ Botni boshqarish uchun quyidagi tugmalardan foydalaning.`,
     sending_price_already_stoped: `⚠️ Narxlarni jo'natish to'xtatilgan`,
     sending_price_stoped: `🛑 Narxlar yuborilishi to‘xtatildi.`,
     send_channel_price: (crypto) => {
-      const isWeekend =
-        crypto?.gold === null &&
-        crypto?.silver === null &&
-        crypto?.oilPriceUsd === null;
+      const isWeekend = crypto?.gold === null && crypto?.silver === null;
 
       const forexSection = !isWeekend
-        ? `*GOLD*: ${formatNumber(crypto?.gold?.price, 2)} USD
-*SILVER*: ${formatNumber(crypto?.silver?.price, 2)} USD
-*OIL (Brent)*: ${formatNumber(crypto?.oilPriceUsd, 2)} USD\n`
+        ? `🟡 *GOLD*: ${formatNumber(crypto?.gold?.price, 2)} USD
+🪙 *SILVER*: ${formatNumber(crypto?.silver?.price, 2)} USD\n`
         : "";
 
       return `${forexSection}
-*BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
-*ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD`;
+💰 *BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
+💎 *ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD`;
     },
   },
 };
