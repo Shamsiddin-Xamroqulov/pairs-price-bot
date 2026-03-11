@@ -29,12 +29,12 @@ Botni boshqarish uchun quyidagi tugmalardan foydalaning.`,
 
       const forexSection = !isWeekend
         ? `🟡 *GOLD*: ${formatNumber(crypto?.gold?.price, 2)} USD
-🪙 *SILVER*: ${formatNumber(crypto?.silver?.price, 2)} USD\n`
+⚪ *SILVER*: ${formatNumber(crypto?.silver?.price, 2)} USD\n`
         : "";
 
       return `${forexSection}
-💰 *BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
-💎 *ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD`;
+₿ *BTC*: ${formatNumber(crypto?.btcToUsd?.result?.USD, 2)} USD
+Ξ *ETH*: ${formatNumber(crypto?.ethToUsd?.result?.USD, 2)} USD`;
     },
   },
 };
