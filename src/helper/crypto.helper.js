@@ -91,6 +91,15 @@ let weeklyCleanJob = null;
 let forexCloseJob = null;
 let isPriceRunning = false;
 
+const getTashkentTime = () => {
+  const now = new Date();
+  const tashkent = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tashkent" }));
+  return {
+    day: tashkent.getDay(),
+    hour: tashkent.getHours()
+  };
+};
+
 export const startScheduler = async (bot, chatId) => {
   if (isPriceRunning) return null;
   isPriceRunning = true;
@@ -105,11 +114,8 @@ export const startScheduler = async (bot, chatId) => {
   };
 
   try {
-    const dayOfWeek = new Date().getDay();
-    const now = new Date();
-    const isWeekend =
-      dayOfWeek === 0 ||
-      (dayOfWeek === 6 && now.getHours() >= 3);
+    const { day, hour } = getTashkentTime();
+    const isWeekend = day === 0 || (day === 6 && hour >= 3);
 
     const immediateResult = isWeekend
       ? await fetchCryptoOnly()
@@ -118,13 +124,39 @@ export const startScheduler = async (bot, chatId) => {
     await saveCryptoToFile(immediateResult);
 
     weekdayJob = cron.schedule(
-      "0 * * * 1-6",
+      "0 * * * 1-5",
       async () => {
         try {
           const result = await fetchCryptoRates();
           await sendMessage(result);
         } catch (error) {
           console.error("Weekday scheduler error:", error.message);
+        }
+      },
+      { timezone: "Asia/Tashkent" },
+    );
+
+    const saturdayForexJob = cron.schedule(
+      "0 0-2 * * 6",
+      async () => {
+        try {
+          const result = await fetchCryptoRates();
+          await sendMessage(result);
+        } catch (error) {
+          console.error("Saturday forex error:", error.message);
+        }
+      },
+      { timezone: "Asia/Tashkent" },
+    );
+
+    const saturdayCryptoJob = cron.schedule(
+      "0 3-23 * * 6",
+      async () => {
+        try {
+          const result = await fetchCryptoOnly();
+          await sendMessage(result);
+        } catch (error) {
+          console.error("Saturday crypto error:", error.message);
         }
       },
       { timezone: "Asia/Tashkent" },
@@ -147,42 +179,8 @@ export const startScheduler = async (bot, chatId) => {
       "58 2 * * 6",
       async () => {
         try {
-          if (weekdayJob) {
-            weekdayJob.stop();
-            weekdayJob = null;
-          }
-
           const result = await fetchCryptoRates();
           await sendMessage(result);
-
-          if (!weekendJob) {
-            weekendJob = cron.schedule(
-              "0 * * * 0",
-              async () => {
-                try {
-                  const res = await fetchCryptoOnly();
-                  await sendMessage(res);
-                } catch (error) {
-                  console.error("Weekend scheduler error:", error.message);
-                }
-              },
-              { timezone: "Asia/Tashkent" },
-            );
-          }
-
-          const shanbaCryptoJob = cron.schedule(
-            "0 3-23 * * 6",
-            async () => {
-              try {
-                const res = await fetchCryptoOnly();
-                await sendMessage(res);
-              } catch (error) {
-                console.error("Shanba crypto error:", error.message);
-              }
-            },
-            { timezone: "Asia/Tashkent" },
-          );
-
         } catch (error) {
           console.error("Forex close job error:", error.message);
         }
@@ -195,20 +193,6 @@ export const startScheduler = async (bot, chatId) => {
       async () => {
         try {
           await clearCryptoFile();
-          if (!weekdayJob) {
-            weekdayJob = cron.schedule(
-              "0 * * * 1-6",
-              async () => {
-                try {
-                  const result = await fetchCryptoRates();
-                  await sendMessage(result);
-                } catch (error) {
-                  console.error("Weekday scheduler error:", error.message);
-                }
-              },
-              { timezone: "Asia/Tashkent" },
-            );
-          }
         } catch (error) {
           console.error("Weekly clean error:", error.message);
         }
