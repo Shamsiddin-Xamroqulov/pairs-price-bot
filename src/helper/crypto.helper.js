@@ -1,5 +1,4 @@
 import axios from "axios";
-import cron from "node-cron";
 import fs from "fs/promises";
 import path from "path";
 import { texts } from "../constant/index.js";
@@ -85,10 +84,15 @@ export const fetchCryptoOnly = async () => {
   }
 };
 
-let mainJob = null;
-let forexCloseJob = null;
-let weeklyCleanJob = null;
+let mainInterval = null;
 let isPriceRunning = false;
+let lastSentHour = -1;
+let lastCleanedWeek = -1;
+
+const getWeekNumber = (date) => {
+  const start = new Date(date.getFullYear(), 0, 1);
+  return Math.ceil(((date - start) / 86400000 + start.getDay() + 1) / 7);
+};
 
 const getTashkentTime = () => {
   const now = new Date();
@@ -99,11 +103,15 @@ const getTashkentTime = () => {
     return {
       day: tashkent.getDay(),
       hour: tashkent.getHours(),
+      minute: tashkent.getMinutes(),
+      week: getWeekNumber(tashkent),
     };
   } catch {
     return {
       day: now.getDay(),
       hour: now.getHours(),
+      minute: now.getMinutes(),
+      week: getWeekNumber(now),
     };
   }
 };
@@ -130,45 +138,41 @@ export const startScheduler = async (bot, chatId) => {
       : await fetchCryptoRates();
 
     await saveCryptoToFile(immediateResult);
-
-    mainJob = cron.schedule("0 * * * *", async () => {
+    mainInterval = setInterval(async () => {
       try {
-        const { day, hour } = getTashkentTime();
+        const { day, hour, minute, week } = getTashkentTime();
 
-        let result;
+        if (
+          day === 1 &&
+          hour === 0 &&
+          minute === 0 &&
+          lastCleanedWeek !== week
+        ) {
+          lastCleanedWeek = week;
+          await clearCryptoFile().catch((e) =>
+            console.error("Weekly clean error:", e.message),
+          );
+        }
 
-        if (day === 0) {
-          result = await fetchCryptoOnly();
-        } else if (day === 6) {
-          if (hour >= 3) {
+        if (minute === 0 && lastSentHour !== hour) {
+          lastSentHour = hour;
+
+          let result;
+
+          if (day === 0) {
+            result = await fetchCryptoOnly();
+          } else if (day === 6 && hour >= 3) {
             result = await fetchCryptoOnly();
           } else {
             result = await fetchCryptoRates();
           }
-        } else {
-          result = await fetchCryptoRates();
-        }
-        await sendMessage(result);
-      } catch (error) {
-        console.error("Main scheduler error:", error.message);
-      }
-    });
-    forexCloseJob = cron.schedule("58 2 * * 6", async () => {
-      try {
-        const result = await fetchCryptoRates();
-        await sendMessage(result);
-      } catch (error) {
-        console.error("Forex close job error:", error.message);
-      }
-    });
 
-    weeklyCleanJob = cron.schedule("0 0 * * 1", async () => {
-      try {
-        await clearCryptoFile();
+          await sendMessage(result);
+        }
       } catch (error) {
-        console.error("Weekly clean error:", error.message);
+        console.error("Scheduler error:", error.message);
       }
-    });
+    }, 10 * 1000);
 
     return immediateResult;
   } catch (error) {
@@ -180,20 +184,15 @@ export const startScheduler = async (bot, chatId) => {
 export const stopScheduler = () => {
   if (!isPriceRunning) return false;
 
-  if (mainJob) {
-    mainJob.stop();
-    mainJob = null;
-  }
-  if (forexCloseJob) {
-    forexCloseJob.stop();
-    forexCloseJob = null;
-  }
-  if (weeklyCleanJob) {
-    weeklyCleanJob.stop();
-    weeklyCleanJob = null;
+  if (mainInterval) {
+    clearInterval(mainInterval);
+    mainInterval = null;
   }
 
+  lastSentHour = -1;
+  lastCleanedWeek = -1;
   isPriceRunning = false;
+
   return true;
 };
 
