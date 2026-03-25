@@ -138,32 +138,38 @@ export const startScheduler = async (bot, chatId) => {
       : await fetchCryptoRates();
 
     await saveCryptoToFile(immediateResult);
+
+    // Hozirgi soatni yozib qo'yamiz — shu soat qayta yuborilmasligi uchun
+    lastSentHour = hour;
+
     mainInterval = setInterval(async () => {
       try {
         const { day, hour, minute, week } = getTashkentTime();
 
-        if (
-          day === 1 &&
-          hour === 0 &&
-          minute === 0 &&
-          lastCleanedWeek !== week
-        ) {
+        // ─── Har dushanba 00:00-00:02 — faylni tozalash ───
+        if (day === 1 && hour === 0 && minute < 3 && lastCleanedWeek !== week) {
           lastCleanedWeek = week;
           await clearCryptoFile().catch((e) =>
             console.error("Weekly clean error:", e.message),
           );
         }
 
-        if (minute === 0 && lastSentHour !== hour) {
+        // ─── Har soat 0-2 minutda yuborish (minute === 0 emas!) ───
+        // minute < 3 ishlatiladi — agar 10 soniyalik interval biror sabab
+        // bilan 1-2 minutga kechiksa ham o'tkazib yubormaslik uchun
+        if (minute < 3 && lastSentHour !== hour) {
           lastSentHour = hour;
 
           let result;
 
           if (day === 0) {
+            // Yakshanba — faqat crypto
             result = await fetchCryptoOnly();
           } else if (day === 6 && hour >= 3) {
+            // Shanba 03:00+ — faqat crypto
             result = await fetchCryptoOnly();
           } else {
+            // Dushanba-Juma va Shanba 00:00-02:59 — hammasi
             result = await fetchCryptoRates();
           }
 
@@ -172,7 +178,7 @@ export const startScheduler = async (bot, chatId) => {
       } catch (error) {
         console.error("Scheduler error:", error.message);
       }
-    }, 10 * 1000);
+    }, 10 * 1000); // har 10 soniya tekshiradi
 
     return immediateResult;
   } catch (error) {
