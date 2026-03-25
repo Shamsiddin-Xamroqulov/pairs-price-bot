@@ -85,19 +85,27 @@ export const fetchCryptoOnly = async () => {
   }
 };
 
-let weekdayJob = null;
-let weekendJob = null;
-let weeklyCleanJob = null;
+let mainJob = null;
 let forexCloseJob = null;
+let weeklyCleanJob = null;
 let isPriceRunning = false;
 
 const getTashkentTime = () => {
   const now = new Date();
-  const tashkent = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tashkent" }));
-  return {
-    day: tashkent.getDay(),
-    hour: tashkent.getHours()
-  };
+  try {
+    const tashkent = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Tashkent" }),
+    );
+    return {
+      day: tashkent.getDay(),
+      hour: tashkent.getHours(),
+    };
+  } catch {
+    return {
+      day: now.getDay(),
+      hour: now.getHours(),
+    };
+  }
 };
 
 export const startScheduler = async (bot, chatId) => {
@@ -123,82 +131,44 @@ export const startScheduler = async (bot, chatId) => {
 
     await saveCryptoToFile(immediateResult);
 
-    weekdayJob = cron.schedule(
-      "0 * * * 1-5",
-      async () => {
-        try {
-          const result = await fetchCryptoRates();
-          await sendMessage(result);
-        } catch (error) {
-          console.error("Weekday scheduler error:", error.message);
-        }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
+    mainJob = cron.schedule("0 * * * *", async () => {
+      try {
+        const { day, hour } = getTashkentTime();
 
-    const saturdayForexJob = cron.schedule(
-      "0 0-2 * * 6",
-      async () => {
-        try {
-          const result = await fetchCryptoRates();
-          await sendMessage(result);
-        } catch (error) {
-          console.error("Saturday forex error:", error.message);
-        }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
+        let result;
 
-    const saturdayCryptoJob = cron.schedule(
-      "0 3-23 * * 6",
-      async () => {
-        try {
-          const result = await fetchCryptoOnly();
-          await sendMessage(result);
-        } catch (error) {
-          console.error("Saturday crypto error:", error.message);
+        if (day === 0) {
+          result = await fetchCryptoOnly();
+        } else if (day === 6) {
+          if (hour >= 3) {
+            result = await fetchCryptoOnly();
+          } else {
+            result = await fetchCryptoRates();
+          }
+        } else {
+          result = await fetchCryptoRates();
         }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
+        await sendMessage(result);
+      } catch (error) {
+        console.error("Main scheduler error:", error.message);
+      }
+    });
+    forexCloseJob = cron.schedule("58 2 * * 6", async () => {
+      try {
+        const result = await fetchCryptoRates();
+        await sendMessage(result);
+      } catch (error) {
+        console.error("Forex close job error:", error.message);
+      }
+    });
 
-    weekendJob = cron.schedule(
-      "0 * * * 0",
-      async () => {
-        try {
-          const result = await fetchCryptoOnly();
-          await sendMessage(result);
-        } catch (error) {
-          console.error("Weekend scheduler error:", error.message);
-        }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
-
-    forexCloseJob = cron.schedule(
-      "58 2 * * 6",
-      async () => {
-        try {
-          const result = await fetchCryptoRates();
-          await sendMessage(result);
-        } catch (error) {
-          console.error("Forex close job error:", error.message);
-        }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
-
-    weeklyCleanJob = cron.schedule(
-      "0 0 * * 1",
-      async () => {
-        try {
-          await clearCryptoFile();
-        } catch (error) {
-          console.error("Weekly clean error:", error.message);
-        }
-      },
-      { timezone: "Asia/Tashkent" },
-    );
+    weeklyCleanJob = cron.schedule("0 0 * * 1", async () => {
+      try {
+        await clearCryptoFile();
+      } catch (error) {
+        console.error("Weekly clean error:", error.message);
+      }
+    });
 
     return immediateResult;
   } catch (error) {
@@ -210,12 +180,20 @@ export const startScheduler = async (bot, chatId) => {
 export const stopScheduler = () => {
   if (!isPriceRunning) return false;
 
-  if (weekdayJob) { weekdayJob.stop(); weekdayJob = null; }
-  if (weekendJob) { weekendJob.stop(); weekendJob = null; }
-  if (weeklyCleanJob) { weeklyCleanJob.stop(); weeklyCleanJob = null; }
-  if (forexCloseJob) { forexCloseJob.stop(); forexCloseJob = null; }
-  isPriceRunning = false;
+  if (mainJob) {
+    mainJob.stop();
+    mainJob = null;
+  }
+  if (forexCloseJob) {
+    forexCloseJob.stop();
+    forexCloseJob = null;
+  }
+  if (weeklyCleanJob) {
+    weeklyCleanJob.stop();
+    weeklyCleanJob = null;
+  }
 
+  isPriceRunning = false;
   return true;
 };
 
