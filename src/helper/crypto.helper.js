@@ -5,6 +5,21 @@ import { texts } from "../constant/index.js";
 
 const CRYPTO_FILE = path.join(process.cwd(), "db", "crypto.json");
 
+// ─── Retry helper: xato bo'lsa qayta urinadi ───
+const withRetry = async (fn, retries = 4, delayMs = 3000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const isLast = i === retries - 1;
+      if (isLast) throw e;
+      console.warn(`Retry ${i + 1}/${retries - 1}: ${e.message}. ${delayMs / 1000}s kutilmoqda...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+      delayMs *= 2; // har safar 2x ko'proq kutadi: 3s → 6s → 12s → 24s
+    }
+  }
+};
+
 export const saveCryptoToFile = async (data) => {
   await fs.mkdir(path.join(process.cwd(), "db"), { recursive: true });
 
@@ -29,7 +44,6 @@ export const clearCryptoFile = async () => {
   await fs.writeFile(CRYPTO_FILE, JSON.stringify([], null, 2), "utf-8");
 };
 
-// DB dan oxirgi saqlangan ma'lumotni olish
 const getLastSavedData = async () => {
   try {
     const file = await fs.readFile(CRYPTO_FILE, "utf-8");
@@ -42,185 +56,174 @@ const getLastSavedData = async () => {
 };
 
 export const fetchCryptoRates = async () => {
-  const baseParams = {
-    access_key: "a172c8fc-7c75f16b-821c7134-ea3a8d3b",
-  };
-
-  try {
-    const btcUsdRes = await axios.get("https://api.exconvert.com/fetchOne", {
-      params: { ...baseParams, from: "BTC", to: "USD" },
-    });
-
-    const ethUsdRes = await axios.get("https://api.exconvert.com/fetchOne", {
-      params: { ...baseParams, from: "ETH", to: "USD" },
-    });
-
-    const goldRes = await axios.get("https://api.gold-api.com/price/XAU");
-    const silverRes = await axios.get("https://api.gold-api.com/price/XAG");
-
+  const baseParams = { access_key: "a172c8fc-7c75f16b-821c7134-ea3a8d3b" };
+  return withRetry(async () => {
+    const [btcUsdRes, ethUsdRes, goldRes, silverRes] = await Promise.all([
+      axios.get("https://api.exconvert.com/fetchOne", { params: { ...baseParams, from: "BTC", to: "USD" } }),
+      axios.get("https://api.exconvert.com/fetchOne", { params: { ...baseParams, from: "ETH", to: "USD" } }),
+      axios.get("https://api.gold-api.com/price/XAU"),
+      axios.get("https://api.gold-api.com/price/XAG"),
+    ]);
     return {
       btcToUsd: btcUsdRes.data,
       ethToUsd: ethUsdRes.data,
       gold: goldRes.data,
       silver: silverRes.data,
     };
-  } catch (error) {
-    console.error("Error fetching crypto rates:", error.message);
-    throw error;
-  }
+  });
 };
 
 export const fetchCryptoOnly = async () => {
-  const baseParams = {
-    access_key: "a172c8fc-7c75f16b-821c7134-ea3a8d3b",
-  };
-
-  try {
-    const btcUsdRes = await axios.get("https://api.exconvert.com/fetchOne", {
-      params: { ...baseParams, from: "BTC", to: "USD" },
-    });
-
-    const ethUsdRes = await axios.get("https://api.exconvert.com/fetchOne", {
-      params: { ...baseParams, from: "ETH", to: "USD" },
-    });
-
+  const baseParams = { access_key: "a172c8fc-7c75f16b-821c7134-ea3a8d3b" };
+  return withRetry(async () => {
+    const [btcUsdRes, ethUsdRes] = await Promise.all([
+      axios.get("https://api.exconvert.com/fetchOne", { params: { ...baseParams, from: "BTC", to: "USD" } }),
+      axios.get("https://api.exconvert.com/fetchOne", { params: { ...baseParams, from: "ETH", to: "USD" } }),
+    ]);
     return {
       btcToUsd: btcUsdRes.data,
       ethToUsd: ethUsdRes.data,
       gold: null,
       silver: null,
     };
-  } catch (error) {
-    console.error("Error fetching crypto only:", error.message);
-    throw error;
-  }
+  });
 };
 
 let mainInterval = null;
 let isPriceRunning = false;
 
-// Trackerlar — ikki marta ishlamaslik uchun
-let lastFetchedHour = -1;  // :58 da fetch qilingan soat
-let lastSentHour = -1;     // :00 da yuborilgan soat
-let lastCleanedDay = -1;   // tozalangan kun (har kuni)
+let prefetchedForHour = -1;
+let lastSentHour = -1;
+let lastCleanedDay = -1;
 
 const getTashkentTime = () => {
   const now = new Date();
   try {
-    const tashkent = new Date(
-      now.toLocaleString("en-US", { timeZone: "Asia/Tashkent" }),
-    );
+    const t = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tashkent" }));
     return {
-      day: tashkent.getDay(),
-      hour: tashkent.getHours(),
-      minute: tashkent.getMinutes(),
-      // Har kun uchun unique key (YYYYMMDD)
-      dayKey: tashkent.getFullYear() * 10000 +
-              (tashkent.getMonth() + 1) * 100 +
-              tashkent.getDate(),
+      day: t.getDay(),
+      hour: t.getHours(),
+      minute: t.getMinutes(),
+      dayKey: t.getFullYear() * 10000 + (t.getMonth() + 1) * 100 + t.getDate(),
     };
   } catch {
-    const now2 = new Date();
     return {
-      day: now2.getDay(),
-      hour: now2.getHours(),
-      minute: now2.getMinutes(),
-      dayKey: now2.getFullYear() * 10000 +
-              (now2.getMonth() + 1) * 100 +
-              now2.getDate(),
+      day: now.getDay(),
+      hour: now.getHours(),
+      minute: now.getMinutes(),
+      dayKey: now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate(),
     };
   }
 };
 
-// Qaysi ma'lumot kerakligini aniqlash (forex+crypto yoki faqat crypto)
 const shouldFetchFullRates = (day, hour) => {
-  if (day === 0) return false;              // Yakshanba — faqat crypto
-  if (day === 6 && hour >= 3) return false; // Shanba 03:00+ — faqat crypto
-  return true;                              // Qolgan vaqt — hammasi
+  if (day === 0) return false;
+  if (day === 6 && hour >= 3) return false;
+  return true;
+};
+
+const getNextHourInfo = (day, hour) => {
+  const nextHour = (hour + 1) % 24;
+  const nextDay = nextHour === 0 ? (day + 1) % 7 : day;
+  return { nextDay, nextHour };
 };
 
 export const startScheduler = async (bot, chatId) => {
   if (isPriceRunning) return null;
   isPriceRunning = true;
 
+  // Telegram ga yuborish ham retry bilan
   const sendToChannel = async (data) => {
-    await bot.telegram.sendMessage(
-      chatId,
-      texts.admin.uz.send_channel_price(data),
-      { parse_mode: "Markdown" },
+    return withRetry(() =>
+      bot.telegram.sendMessage(
+        chatId,
+        texts.admin.uz.send_channel_price(data),
+        { parse_mode: "Markdown" },
+      )
     );
   };
 
-  try {
-    const { day, hour } = getTashkentTime();
-
-    // Botni ishga tushirganda darhol bir marta fetch qilib yuboradi
-    const immediateResult = shouldFetchFullRates(day, hour)
+  const fetchData = async (day, hour) => {
+    return shouldFetchFullRates(day, hour)
       ? await fetchCryptoRates()
       : await fetchCryptoOnly();
+  };
 
+  try {
+    const { day, hour, minute } = getTashkentTime();
+
+    const immediateResult = await fetchData(day, hour);
     await saveCryptoToFile(immediateResult);
     await sendToChannel(immediateResult);
-
-    lastFetchedHour = hour;
     lastSentHour = hour;
 
-    // ✅ Har 10 soniyada tekshiradi
+    if (minute >= 55) {
+      const { nextDay, nextHour } = getNextHourInfo(day, hour);
+      console.log(`[INIT] ${nextHour}:00 uchun prefetch...`);
+      try {
+        const prefetchResult = await fetchData(nextDay, nextHour);
+        await saveCryptoToFile(prefetchResult);
+        prefetchedForHour = nextHour;
+        console.log(`[INIT] ${nextHour}:00 uchun saqlandi.`);
+      } catch (e) {
+        console.error("[INIT] Prefetch xatosi:", e.message);
+      }
+    }
+
     mainInterval = setInterval(async () => {
       try {
         const { day, hour, minute, dayKey } = getTashkentTime();
 
-        // ─── 1. Har kuni 00:00 da DB ni tozalash ───
+        // ─── 1. Har kuni 00:00 da DB tozalash ───
         if (hour === 0 && minute < 3 && lastCleanedDay !== dayKey) {
           lastCleanedDay = dayKey;
-          console.log("DB tozalanmoqda...");
+          console.log(`[${dayKey}] DB tozalanmoqda...`);
           await clearCryptoFile().catch((e) =>
             console.error("Daily clean error:", e.message),
           );
         }
 
-        // ─── 2. Har soat :58 da API dan oldindan fetch qilish ───
-        if (minute === 58 && lastFetchedHour !== hour) {
-          lastFetchedHour = hour;
-          console.log(`[${hour}:58] Oldindan fetch qilinmoqda...`);
-          try {
-            const result = shouldFetchFullRates(day, hour)
-              ? await fetchCryptoRates()
-              : await fetchCryptoOnly();
-            await saveCryptoToFile(result);
-            console.log(`[${hour}:58] DB ga saqlandi.`);
-          } catch (e) {
-            console.error(`[${hour}:58] Fetch xatosi:`, e.message);
+        // ─── 2. :55-:59 da keyingi soat uchun prefetch ───
+        if (minute >= 55) {
+          const { nextDay, nextHour } = getNextHourInfo(day, hour);
+          if (prefetchedForHour !== nextHour) {
+            prefetchedForHour = nextHour;
+            console.log(`[${hour}:${minute}] ${nextHour}:00 uchun prefetch...`);
+            try {
+              const result = await fetchData(nextDay, nextHour);
+              await saveCryptoToFile(result);
+              console.log(`[${hour}:${minute}] ✅ ${nextHour}:00 uchun saqlandi.`);
+            } catch (e) {
+              console.error(`[${hour}:${minute}] ❌ Prefetch xatosi (retry tugadi):`, e.message);
+              prefetchedForHour = -1; // qayta urinish uchun reset
+            }
           }
         }
 
-        // ─── 3. Har soat :00-:02 da DB dan o'qib kanalga yuborish ───
-        if (minute < 3 && lastSentHour !== hour) {
+        // ─── 3. :00-:04 da DB dan o'qib kanalga yuborish ───
+        if (minute < 5 && lastSentHour !== hour) {
           lastSentHour = hour;
-          console.log(`[${hour}:00] Kanalga yuborilmoqda...`);
+          console.log(`[${hour}:${minute}] Kanalga yuborilmoqda...`);
           try {
-            // Avval DB dan oxirgi saqlangan ma'lumotni oladi
             let data = await getLastSavedData();
 
-            // Agar DB da ma'lumot bo'lmasa (fallback) — to'g'ridan API dan oladi
             if (!data) {
-              console.warn(`[${hour}:00] DB bo'sh, API dan fallback...`);
-              data = shouldFetchFullRates(day, hour)
-                ? await fetchCryptoRates()
-                : await fetchCryptoOnly();
+              console.warn(`[${hour}:${minute}] DB bo'sh! API fallback (retry bilan)...`);
+              data = await fetchData(day, hour);
               await saveCryptoToFile(data);
             }
 
             await sendToChannel(data);
-            console.log(`[${hour}:00] Yuborildi.`);
+            console.log(`[${hour}:${minute}] ✅ Yuborildi.`);
           } catch (e) {
-            console.error(`[${hour}:00] Yuborish xatosi:`, e.message);
+            console.error(`[${hour}:${minute}] ❌ Yuborish xatosi (retry tugadi):`, e.message);
+            lastSentHour = -1; // qayta urinish uchun reset
           }
         }
       } catch (error) {
-        console.error("Scheduler error:", error.message);
+        console.error("Scheduler loop error:", error.message);
       }
-    }, 10 * 1000); // har 10 soniya
+    }, 10 * 1000);
 
     return immediateResult;
   } catch (error) {
@@ -237,7 +240,7 @@ export const stopScheduler = () => {
     mainInterval = null;
   }
 
-  lastFetchedHour = -1;
+  prefetchedForHour = -1;
   lastSentHour = -1;
   lastCleanedDay = -1;
   isPriceRunning = false;
